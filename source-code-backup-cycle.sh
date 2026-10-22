@@ -1,0 +1,79 @@
+#!/bin/bash
+
+set -u
+
+SCRIPT_DIR="$HOME/source-code-backup-scripts"
+
+FORGEJO_DIR="$HOME/forgejo-lab"
+BACKUP_DIR="$HOME/forgejo-backups"
+
+STATE_FILE="/tmp/forgejo-backup-cycle.state"
+
+echo "$(date) [INFO] [BACKUP_CYCLE] Starting backup cycle"
+
+# Remove state left by an earlier interrupted run.
+rm -f -- "$STATE_FILE"
+
+# Step 1: Create, copy, and validate the Forgejo dump.
+"$SCRIPT_DIR/forgejo_backup.sh" \
+    "$FORGEJO_DIR" \
+    "$BACKUP_DIR" \
+    "$STATE_FILE"
+
+exit_code=$?
+
+if [ "$exit_code" -ne 0 ]; then
+    echo "$(date) [ERROR] [BACKUP_CYCLE] Forgejo backup preparation failed (exit_code=$exit_code)"
+    exit "$exit_code"
+fi
+
+# The Forgejo script must record the exact ZIP it created.
+if [ ! -s "$STATE_FILE" ]; then
+    echo "$(date) [ERROR] [BACKUP_CYCLE] Dump state file is missing or empty"
+    exit 1
+fi
+
+DUMP_FILE=$(<"$STATE_FILE")
+
+# Confirm the recorded file exists before running Restic.
+if [ ! -s "$DUMP_FILE" ]; then
+    echo "$(date) [ERROR] [BACKUP_CYCLE] Recorded Forgejo dump is missing or empty: $DUMP_FILE"
+    rm -f -- "$STATE_FILE"
+    exit 1
+fi
+
+echo "$(date) [INFO] [BACKUP_CYCLE] Forgejo artifact ready: $DUMP_FILE"
+
+# Step 2: Protect the staging directory with Restic.
+"$SCRIPT_DIR/restic_backup.sh" "$BACKUP_DIR"
+
+exit_code=$?
+
+if [ "$exit_code" -ne 0 ]; then
+    echo "$(date) [ERROR] [BACKUP_CYCLE] Restic backup failed; retaining dump: $DUMP_FILE"
+
+    # Keep both the dump and state file for investigation.
+    exit "$exit_code"
+fi
+
+# Step 3: Delete only the exact ZIP created during this cycle.
+"$SCRIPT_DIR/cleanup-forgejo-dump.sh" \
+    "$DUMP_FILE" \
+    "$BACKUP_DIR"
+
+cleanup_exit_code=$?
+
+if [ "$cleanup_exit_code" -ne 0 ]; then
+    echo "$(date) [WARNING] [BACKUP_CYCLE] Restic succeeded, but staging cleanup failed"
+
+    rm -f -- "$STATE_FILE"
+
+    # The backup itself succeeded. The ZIP remaining on disk is safer
+    # than reporting the protected backup as failed.
+    exit 0
+fi
+
+rm -f -- "$STATE_FILE"
+
+echo "$(date) [INFO] [BACKUP_CYCLE] Backup cycle completed successfully"
+exit 0
