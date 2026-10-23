@@ -1,4 +1,5 @@
 #!/bin/bash
+# Rebuilds a Forgejo dump into a separate local recovery container so the backup can be checked by hand.
 
 set -u
 

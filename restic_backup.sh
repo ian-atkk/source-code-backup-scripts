@@ -1,5 +1,5 @@
 #!/bin/bash
-
+# Backs up a directory with restic, applies daily/weekly retention, prunes, checks a rotating data subset, and sends a desktop notification with the result.
 set -u
 
 . "$(dirname -- "$(realpath -- "$0")")/load-env.sh"
@@ -31,6 +31,11 @@ fi
 
 if ! command -v restic >/dev/null 2>&1; then
     echo "$(date) [ERROR] [RESTIC_SYSTEM] restic is not installed."
+    exit 1
+fi
+
+if ! command -v rclone >/dev/null 2>&1; then
+    echo "$(date) [ERROR] [RESTIC_SYSTEM] rclone is not installed."
     exit 1
 fi
 

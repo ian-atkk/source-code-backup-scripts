@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# Stops Forgejo, creates and validates a tar dump for restic, then restarts Forgejo and records the dump path in a state file.
+
 set -u
 
 . "$(dirname -- "$(realpath -- "$0")")/load-env.sh"

@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# Restores one restic snapshot into an empty directory and checks that it holds a single readable Forgejo dump tar.
+
 set -u
 
 . "$(dirname -- "$(realpath -- "$0")")/load-env.sh"
