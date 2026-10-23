@@ -1,4 +1,7 @@
 #!/bin/bash
+#
+# Runs one full backup cycle: dumps and validates Forgejo, backs the dump up with restic,
+# mirrors the restic repo offsite with rclone, then deletes the staged dump.
 
 set -u
 
