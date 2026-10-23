@@ -2,19 +2,26 @@
 
 set -u
 
-SCRIPT_DIR="$HOME/source-code-backup-scripts"
+SCRIPT_DIR=$(dirname -- "$(realpath -- "$0")")
 
-FORGEJO_DIR="$HOME/forgejo-lab"
-BACKUP_DIR="$HOME/forgejo-backups"
+. "$SCRIPT_DIR/load-env.sh"
 
-STATE_FILE="/tmp/forgejo-backup-cycle.state"
+require_env FORGEJO_DIR BACKUP_DIR STATE_FILE LOCK_FILE
+
+# Only one cycle at a time: the dump step stops and starts Forgejo.
+exec 9>"$LOCK_FILE"
+
+if ! flock -n 9; then
+    echo "$(date) [WARNING] [BACKUP_CYCLE] Backup cycle already running. Exiting."
+    exit 1
+fi
 
 echo "$(date) [INFO] [BACKUP_CYCLE] Starting backup cycle"
 
 # Remove state left by an earlier interrupted run.
 rm -f -- "$STATE_FILE"
 
-# Step 1: Create, copy, and validate the Forgejo dump.
+# Step 1: Create and validate the Forgejo dump.
 "$SCRIPT_DIR/forgejo_backup.sh" \
     "$FORGEJO_DIR" \
     "$BACKUP_DIR" \
@@ -27,7 +34,7 @@ if [ "$exit_code" -ne 0 ]; then
     exit "$exit_code"
 fi
 
-# The Forgejo script must record the exact ZIP it created.
+# The Forgejo script must record the exact dump it created.
 if [ ! -s "$STATE_FILE" ]; then
     echo "$(date) [ERROR] [BACKUP_CYCLE] Dump state file is missing or empty"
     exit 1
@@ -56,7 +63,7 @@ if [ "$exit_code" -ne 0 ]; then
     exit "$exit_code"
 fi
 
-# Step 3: Delete only the exact ZIP created during this cycle.
+# Step 3: Delete only the exact dump created during this cycle.
 "$SCRIPT_DIR/cleanup-forgejo-dump.sh" \
     "$DUMP_FILE" \
     "$BACKUP_DIR"
@@ -68,7 +75,7 @@ if [ "$cleanup_exit_code" -ne 0 ]; then
 
     rm -f -- "$STATE_FILE"
 
-    # The backup itself succeeded. The ZIP remaining on disk is safer
+    # The backup itself succeeded. The dump remaining on disk is safer
     # than reporting the protected backup as failed.
     exit 0
 fi

@@ -2,15 +2,16 @@
 
 set -u
 
+. "$(dirname -- "$(realpath -- "$0")")/load-env.sh"
+
+require_env RESTIC_REPOSITORY RESTIC_PASSWORD_FILE LOG_DIR BACKUP_DIR
+
 SNAPSHOT_ID="${1:?Usage: $0 <snapshot-id> <target-directory>}"
 RESTORE_DIR="${2:?Usage: $0 <snapshot-id> <target-directory>}"
 
-export RESTIC_REPOSITORY="$HOME/forgejo-restic-repo"
-export RESTIC_PASSWORD_FILE="$HOME/.forgejo-restic-pass"
+RESTIC_LOG="$LOG_DIR/restic_output.log"
 
-RESTIC_LOG="$HOME/source-code-backup-logs/restic_output.log"
-
-SNAPSHOT_PATH="$HOME/forgejo-backups"
+SNAPSHOT_PATH="$BACKUP_DIR"
 
 
 if ! mkdir -p "$(dirname "$RESTIC_LOG")"; then
@@ -116,7 +117,7 @@ validate_restored_dump()
         find "$RESTORE_DIR" \
             -maxdepth 1 \
             -type f \
-            -name 'forgejo-dump-*.zip' |
+            -name 'forgejo-dump-*.tar' |
             wc -l
     )
 
@@ -134,7 +135,7 @@ validate_restored_dump()
         find "$RESTORE_DIR" \
             -maxdepth 1 \
             -type f \
-            -name 'forgejo-dump-*.zip' \
+            -name 'forgejo-dump-*.tar' \
             -print \
             -quit
     )
@@ -144,21 +145,21 @@ validate_restored_dump()
         return 1
     fi
 
-    if ! command -v unzip >/dev/null 2>&1; then
-        echo "$(date) [ERROR] [RESTIC_RESTORE] unzip is not installed"
+    if ! command -v tar >/dev/null 2>&1; then
+        echo "$(date) [ERROR] [RESTIC_RESTORE] tar is not installed"
         return 1
     fi
 
-    if ! unzip -t "$restored_dump" >/dev/null 2>&1; then
-        echo "$(date) [ERROR] [RESTIC_RESTORE] Restored ZIP failed integrity validation: $restored_dump"
+    if ! tar -tf "$restored_dump" >/dev/null 2>&1; then
+        echo "$(date) [ERROR] [RESTIC_RESTORE] Restored TAR failed integrity validation: $restored_dump"
         return 1
     fi
 
-    echo "$(date) [INFO] [RESTIC_RESTORE] Restored ZIP integrity: OK"
+    echo "$(date) [INFO] [RESTIC_RESTORE] Restored TAR integrity: OK"
     echo "$(date) [INFO] [RESTIC_RESTORE] Restored artifact: $restored_dump"
 
     {
-        echo "ZIP integrity: OK"
+        echo "TAR integrity: OK"
         echo "restored artifact: $restored_dump"
         sha256sum "$restored_dump"
     } >> "$RESTIC_LOG"

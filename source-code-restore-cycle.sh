@@ -2,14 +2,13 @@
 
 set -u
 
+SCRIPT_DIR=$(dirname -- "$(realpath -- "$0")")
+
+. "$SCRIPT_DIR/load-env.sh"
+
+require_env RESTORE_DIR RECOVERY_DIR RECOVERY_CONTAINER RECOVERY_PORT
+
 SNAPSHOT_ID="${1:?Usage: $0 <snapshot-id>}"
-
-SCRIPT_DIR="$HOME/source-code-backup-scripts"
-
-RESTORE_DIR="$HOME/forgejo-restic-restore1"
-RECOVERY_DIR="$HOME/forgejo-recovery"
-
-RECOVERY_CONTAINER="forgejo-recovery"
 
 
 echo "$(date) [INFO] [RESTORE_CYCLE] Starting restore cycle"
@@ -39,7 +38,7 @@ if docker inspect "$RECOVERY_CONTAINER" >/dev/null 2>&1; then
 fi
 
 
-# Step 1: Restore the Forgejo ZIP from Restic.
+# Step 1: Restore the Forgejo dump from Restic.
 "$SCRIPT_DIR/restic_restore.sh" \
     "$SNAPSHOT_ID" \
     "$RESTORE_DIR"
@@ -52,12 +51,12 @@ if [ "$exit_code" -ne 0 ]; then
 fi
 
 
-# Step 2: Find the restored Forgejo ZIP.
+# Step 2: Find the restored Forgejo dump.
 DUMP_FILE=$(
     find "$RESTORE_DIR" \
         -maxdepth 1 \
         -type f \
-        -name 'forgejo-dump-*.zip' \
+        -name 'forgejo-dump-*.tar' \
         -print \
         -quit
 )
@@ -94,7 +93,7 @@ fi
 echo "$(date) [INFO] [RESTORE_CYCLE] Restore cycle completed successfully"
 echo
 echo "Recovery instance:"
-echo "  http://127.0.0.1:4001/"
+echo "  http://127.0.0.1:${RECOVERY_PORT}/"
 echo
 echo "Verify:"
 echo "  - Login"

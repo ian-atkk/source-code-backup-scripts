@@ -1,0 +1,2 @@
+# Real configuration stays on the server (will hold credentials later).
+backup.env

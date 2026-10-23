@@ -2,23 +2,22 @@
 
 set -u
 
-DUMP_FILE="${1:?Usage: $0 <forgejo-dump.zip> <recovery-directory>}"
-RECOVERY_DIR="${2:?Usage: $0 <forgejo-dump.zip> <recovery-directory>}"
+. "$(dirname -- "$(realpath -- "$0")")/load-env.sh"
 
-FORGEJO_IMAGE="${FORGEJO_IMAGE:-codeberg.org/forgejo/forgejo:15}"
-FORGEJO_UID="${FORGEJO_UID:-1000}"
-FORGEJO_GID="${FORGEJO_GID:-1000}"
+require_env FORGEJO_IMAGE FORGEJO_UID FORGEJO_GID \
+    RECOVERY_CONTAINER RECOVERY_PORT LOG_DIR
 
-RECOVERY_CONTAINER="forgejo-recovery"
+DUMP_FILE="${1:?Usage: $0 <forgejo-dump.tar> <recovery-directory>}"
+RECOVERY_DIR="${2:?Usage: $0 <forgejo-dump.tar> <recovery-directory>}"
+
 RECOVERY_HOST="127.0.0.1"
-RECOVERY_PORT="4001"
 CONTAINER_PORT="3000"
 
 EXTRACT_DIR="$RECOVERY_DIR/extracted"
 RECOVERY_DATA="$RECOVERY_DIR/recovery-data"
 COMPOSE_FILE="$RECOVERY_DIR/compose-recovery.yaml"
 
-RESTORE_LOG="$HOME/source-code-backup-logs/forgejo_output.log"
+RESTORE_LOG="$LOG_DIR/forgejo_output.log"
 
 
 restore_log()
@@ -57,7 +56,7 @@ check_requirements()
 
     restore_log INFO CHECK "Checking restore requirements"
 
-    for command_name in docker unzip sed find realpath; do
+    for command_name in docker tar sed find realpath; do
         if ! command -v "$command_name" >/dev/null 2>&1; then
             restore_log ERROR CHECK \
                 "Required command not found: $command_name"
@@ -140,6 +139,7 @@ prepare_recovery_directory()
 
 validate_dump()
 {
+    local entries
     local repository_entries
 
     restore_log INFO VALIDATE \
@@ -147,15 +147,15 @@ validate_dump()
 
     printf '\n--- DUMP VALIDATION ---\n' >> "$RESTORE_LOG"
 
-    if ! unzip -t "$DUMP_FILE" >/dev/null 2>&1; then
+    if ! entries=$(tar -tf "$DUMP_FILE" 2>> "$RESTORE_LOG"); then
         restore_log ERROR VALIDATE \
-            "ZIP integrity validation failed"
+            "TAR integrity validation failed"
         return 1
     fi
 
-    echo "ZIP integrity: OK" >> "$RESTORE_LOG"
+    echo "TAR integrity: OK" >> "$RESTORE_LOG"
 
-    if ! unzip -Z1 "$DUMP_FILE" | grep -qx 'app.ini'; then
+    if ! grep -qx 'app.ini' <<< "$entries"; then
         restore_log ERROR VALIDATE \
             "app.ini not found in Forgejo dump"
         return 1
@@ -163,7 +163,7 @@ validate_dump()
 
     echo "found: app.ini" >> "$RESTORE_LOG"
 
-    if ! unzip -Z1 "$DUMP_FILE" | grep -qx 'forgejo-db.sql'; then
+    if ! grep -qx 'forgejo-db.sql' <<< "$entries"; then
         restore_log ERROR VALIDATE \
             "forgejo-db.sql not found in Forgejo dump"
         return 1
@@ -171,7 +171,7 @@ validate_dump()
 
     echo "found: forgejo-db.sql" >> "$RESTORE_LOG"
 
-    if ! unzip -Z1 "$DUMP_FILE" | grep -q '^data/'; then
+    if ! grep -q '^data/' <<< "$entries"; then
         restore_log ERROR VALIDATE \
             "Forgejo application data not found in dump"
         return 1
@@ -180,8 +180,7 @@ validate_dump()
     echo "found: data/" >> "$RESTORE_LOG"
 
     repository_entries=$(
-        unzip -Z1 "$DUMP_FILE" |
-            grep -c '^repos/' || true
+        grep -c '^repos/' <<< "$entries" || true
     )
 
     if [ "$repository_entries" -eq 0 ]; then
@@ -207,8 +206,8 @@ extract_dump()
 
     printf '\n--- EXTRACT ---\n' >> "$RESTORE_LOG"
 
-    if ! unzip -q "$DUMP_FILE" \
-        -d "$EXTRACT_DIR" \
+    if ! tar -xf "$DUMP_FILE" \
+        -C "$EXTRACT_DIR" \
         >> "$RESTORE_LOG" 2>&1; then
 
         restore_log ERROR EXTRACT \

@@ -55,7 +55,7 @@ if [ "$(dirname -- "$RESOLVED_DUMP")" != "$RESOLVED_STAGING" ]; then
 fi
 
 case "$(basename -- "$RESOLVED_DUMP")" in
-forgejo-dump-*.zip) ;;
+forgejo-dump-*.tar) ;;
 *)
     cleanup_log ERROR \
         "Unexpected dump filename; refusing deletion: $RESOLVED_DUMP"

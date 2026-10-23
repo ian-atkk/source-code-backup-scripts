@@ -2,14 +2,18 @@
 
 set -u
 
+. "$(dirname -- "$(realpath -- "$0")")/load-env.sh"
+
+require_env FORGEJO_SERVICE FORGEJO_CONTAINER FORGEJO_UID LOG_DIR
+
 FORGEJO_DIR="${1:?Usage: $0 <forgejo-directory> <destination-directory> <state-file>}"
 DESTINATION_DIR="${2:?Usage: $0 <forgejo-directory> <destination-directory> <state-file>}"
 STATE_FILE="${3:?Usage: $0 <forgejo-directory> <destination-directory> <state-file>}"
 
-FORGEJO_CONTAINER="forgejo"
-FORGEJO_UID="1000"
+FORGEJO_LOG="$LOG_DIR/forgejo_output.log"
 
-FORGEJO_LOG="$HOME/source-code-backup-logs/forgejo_output.log"
+# Set to 1 only while this script has Forgejo stopped.
+FORGEJO_STOPPED_BY_US=0
 
 if ! mkdir -p "$(dirname "$FORGEJO_LOG")"; then
     echo "$(date) [ERROR] [FORGEJO_SYSTEM] Failed to create log directory"
@@ -27,6 +31,19 @@ start_new_forgejo_log() {
             "$(date '+%Y-%m-%d %H:%M:%S %Z')"
         printf '%s\n' "$bar"
     } >>"$FORGEJO_LOG"
+}
+
+forgejo_compose() {
+    docker compose -f "$FORGEJO_DIR/compose.yaml" "$@"
+}
+
+forgejo_running() {
+    [ "$(
+        docker inspect \
+            --format '{{.State.Running}}' \
+            "$FORGEJO_CONTAINER" \
+            2>/dev/null
+    )" = "true" ]
 }
 
 check_dir() {
@@ -58,17 +75,28 @@ check_dir() {
         return 1
     fi
 
+    # Docker bind mounts need an absolute path.
+    DESTINATION_DIR=$(realpath -e -- "$DESTINATION_DIR") || return 1
+
     return 0
 }
 
 check_forgejo_container() {
-    local running
-
     if ! command -v docker >/dev/null 2>&1; then
         echo "$(date) [ERROR] [FORGEJO_CHECK] Docker command not found"
         return 1
     else
         echo "$(date) [INFO] [FORGEJO_CHECK] Docker command found"
+    fi
+
+    if ! docker compose version >/dev/null 2>&1; then
+        echo "$(date) [ERROR] [FORGEJO_CHECK] Docker Compose plugin is not available"
+        return 1
+    fi
+
+    if ! command -v tar >/dev/null 2>&1; then
+        echo "$(date) [ERROR] [FORGEJO_CHECK] tar command not found"
+        return 1
     fi
 
     if ! docker inspect "$FORGEJO_CONTAINER" >/dev/null 2>&1; then
@@ -78,70 +106,100 @@ check_forgejo_container() {
         echo "$(date) [INFO] [FORGEJO_CHECK] Forgejo container found: $FORGEJO_CONTAINER"
     fi
 
-    running=$(
-        docker inspect \
-            --format '{{.State.Running}}' \
-            "$FORGEJO_CONTAINER"
-    )
-
-    if [ "$running" != "true" ]; then
-        echo "$(date) [ERROR] [FORGEJO_CHECK] Forgejo container not running: $FORGEJO_CONTAINER"
-        return 1
-    else
+    if forgejo_running; then
         echo "$(date) [INFO] [FORGEJO_CHECK] Forgejo container running: $FORGEJO_CONTAINER"
+    else
+        echo "$(date) [WARNING] [FORGEJO_CHECK] Forgejo container is not running; it will be left stopped after the dump"
     fi
 
     return 0
 }
 
+stop_forgejo() {
+    if ! forgejo_running; then
+        return 0
+    fi
+
+    echo "$(date) [INFO] [FORGEJO_STOP] Stopping Forgejo for a consistent dump"
+    echo -e "\n--- STOP ---" >>"$FORGEJO_LOG"
+
+    # Set before stopping so the exit trap restarts Forgejo even if
+    # the stop command fails halfway.
+    FORGEJO_STOPPED_BY_US=1
+
+    if ! forgejo_compose stop "$FORGEJO_SERVICE" >>"$FORGEJO_LOG" 2>&1; then
+        echo "$(date) [ERROR] [FORGEJO_STOP] Failed to stop Forgejo"
+        return 1
+    fi
+
+    if forgejo_running; then
+        echo "$(date) [ERROR] [FORGEJO_STOP] Forgejo is still running after stop"
+        return 1
+    fi
+
+    echo "$(date) [INFO] [FORGEJO_STOP] Forgejo stopped"
+    return 0
+}
+
+start_forgejo() {
+    if [ "$FORGEJO_STOPPED_BY_US" -ne 1 ]; then
+        return 0
+    fi
+
+    echo "$(date) [INFO] [FORGEJO_START] Starting Forgejo"
+    echo -e "\n--- START ---" >>"$FORGEJO_LOG"
+
+    if ! forgejo_compose start "$FORGEJO_SERVICE" >>"$FORGEJO_LOG" 2>&1; then
+        echo "$(date) [ERROR] [FORGEJO_START] Failed to start Forgejo; the service is DOWN"
+        return 1
+    fi
+
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+        if forgejo_running; then
+            FORGEJO_STOPPED_BY_US=0
+            echo "$(date) [INFO] [FORGEJO_START] Forgejo running again"
+            return 0
+        fi
+
+        sleep 3
+    done
+
+    echo "$(date) [ERROR] [FORGEJO_START] Forgejo did not come back up; the service is DOWN"
+    return 1
+}
+
 create_forgejo_dump() {
     TIMESTAMP="$(date '+%Y%m%d_%H%M%S')"
-    DUMP_NAME="forgejo-dump-${TIMESTAMP}.zip"
-    CONTAINER_DUMP="/tmp/${DUMP_NAME}"
+    DUMP_NAME="forgejo-dump-${TIMESTAMP}.tar"
     HOST_DUMP="${DESTINATION_DIR}/${DUMP_NAME}"
 
     echo "$(date) [INFO] [FORGEJO_DUMP] Creating dump: $DUMP_NAME"
     echo -e "\n--- DUMP ---" >>"$FORGEJO_LOG"
 
-    if ! docker exec \
+    # Plain tar (not compressed): restic compresses and deduplicates it,
+    # so only changed data is stored each night.
+    #
+    # The dump runs in a one-off container against the same /data volume
+    # while the main container is stopped.
+    if ! forgejo_compose run \
+        --rm \
+        --no-deps \
+        -T \
         -u "$FORGEJO_UID" \
-        "$FORGEJO_CONTAINER" \
+        -w /tmp \
+        -v "$DESTINATION_DIR:/backup" \
+        "$FORGEJO_SERVICE" \
         forgejo dump \
-        --file "$CONTAINER_DUMP" \
-        --type zip \
+        --file "/backup/$DUMP_NAME" \
+        --type tar \
         >>"$FORGEJO_LOG" 2>&1; then
 
         echo "$(date) [ERROR] [FORGEJO_DUMP] Forgejo dump creation failed"
         return 1
     fi
 
-    if ! docker exec \
-        "$FORGEJO_CONTAINER" \
-        test -s "$CONTAINER_DUMP"; then
-
-        echo "$(date) [ERROR] [FORGEJO_DUMP] Dump is missing or empty inside container: $CONTAINER_DUMP"
-        return 1
-    fi
-
-    echo "$(date) [INFO] [FORGEJO_DUMP] Forgejo dump successfully created at: $CONTAINER_DUMP"
-    return 0
-}
-
-copy_dump() {
-    echo "$(date) [INFO] [FORGEJO_COPY] Copying dump to: $HOST_DUMP"
-    echo -e "\n--- COPY ---" >>"$FORGEJO_LOG"
-
-    if ! docker cp \
-        "$FORGEJO_CONTAINER:$CONTAINER_DUMP" \
-        "$HOST_DUMP" \
-        >>"$FORGEJO_LOG" 2>&1; then
-
-        echo "$(date) [ERROR] [FORGEJO_COPY] Forgejo copy failed"
-        return 1
-    fi
-
     if [ ! -s "$HOST_DUMP" ]; then
-        echo "$(date) [ERROR] [FORGEJO_COPY] Dump copy is empty or missing: $HOST_DUMP"
+        echo "$(date) [ERROR] [FORGEJO_DUMP] Dump is missing or empty: $HOST_DUMP"
         return 1
     fi
 
@@ -150,36 +208,33 @@ copy_dump() {
         sha256sum "$HOST_DUMP"
     } >>"$FORGEJO_LOG" 2>&1
 
-    echo "$(date) [INFO] [FORGEJO_COPY] Forgejo copied successfully to: $HOST_DUMP"
+    echo "$(date) [INFO] [FORGEJO_DUMP] Forgejo dump successfully created at: $HOST_DUMP"
     return 0
 }
 
 validate_dump() {
+    local entries
     local repository_entries
 
     echo "$(date) [INFO] [FORGEJO_VALIDATE] Validating dump: $HOST_DUMP"
     echo -e "\n--- VALIDATE ---" >>"$FORGEJO_LOG"
 
-    if ! command -v unzip >/dev/null 2>&1; then
-        echo "$(date) [ERROR] [FORGEJO_VALIDATE] unzip command not found"
-        return 1
-    fi
-
-    if unzip -t "$HOST_DUMP" >/dev/null 2>&1; then
-        echo "ZIP integrity: OK" >>"$FORGEJO_LOG"
+    # Listing reads the whole archive, so truncation is detected here.
+    if entries=$(tar -tf "$HOST_DUMP" 2>>"$FORGEJO_LOG"); then
+        echo "TAR integrity: OK" >>"$FORGEJO_LOG"
     else
-        echo "$(date) [ERROR] [FORGEJO_VALIDATE] ZIP integrity check failed: $HOST_DUMP"
+        echo "$(date) [ERROR] [FORGEJO_VALIDATE] TAR integrity check failed: $HOST_DUMP"
         return 1
     fi
 
-    if ! unzip -Z1 "$HOST_DUMP" | grep -qx 'app.ini'; then
+    if ! grep -qx 'app.ini' <<<"$entries"; then
         echo "$(date) [ERROR] [FORGEJO_VALIDATE] app.ini not found in dump"
         return 1
     fi
 
     echo "found: app.ini" >>"$FORGEJO_LOG"
 
-    if ! unzip -Z1 "$HOST_DUMP" | grep -qx 'forgejo-db.sql'; then
+    if ! grep -qx 'forgejo-db.sql' <<<"$entries"; then
         echo "$(date) [ERROR] [FORGEJO_VALIDATE] forgejo-db.sql not found in dump"
         return 1
     fi
@@ -187,8 +242,7 @@ validate_dump() {
     echo "found: forgejo-db.sql" >>"$FORGEJO_LOG"
 
     repository_entries=$(
-        unzip -Z1 "$HOST_DUMP" |
-            grep -c '^repos/' || true
+        grep -c '^repos/' <<<"$entries" || true
     )
 
     if [ "$repository_entries" -eq 0 ]; then
@@ -222,46 +276,35 @@ write_state_file() {
     return 0
 }
 
-remove_container_dump() {
-    echo -e "\n--- CLEANUP ---" >>"$FORGEJO_LOG"
-
-    if docker exec \
-        "$FORGEJO_CONTAINER" \
-        rm -v -f "$CONTAINER_DUMP" \
-        >>"$FORGEJO_LOG" 2>&1; then
-
-        echo "$(date) [INFO] [FORGEJO_CLEANUP] Temporary container dump removed: $CONTAINER_DUMP" \
-            >>"$FORGEJO_LOG"
-    else
-        echo "$(date) [WARNING] [FORGEJO_CLEANUP] Failed to remove temporary container dump: $CONTAINER_DUMP" \
-            >>"$FORGEJO_LOG"
-    fi
-
-    return 0
-}
-
 failure_cleanup() {
-    if [ -n "${CONTAINER_DUMP:-}" ]; then
-        docker exec \
-            "$FORGEJO_CONTAINER" \
-            rm -f "$CONTAINER_DUMP" \
-            >/dev/null 2>&1 || true
+    # An incomplete or invalid dump must not end up in the next restic
+    # snapshot; the log keeps the details.
+    if [ -n "${HOST_DUMP:-}" ] && [ -f "$HOST_DUMP" ]; then
+        rm -f -- "$HOST_DUMP"
+        echo "$(date) [INFO] [FORGEJO_CLEANUP] Removed failed dump: $HOST_DUMP"
     fi
 
     rm -f -- "$STATE_FILE"
 }
+
+# Restart Forgejo however the script ends (error, Ctrl-C, kill).
+trap 'start_forgejo' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 main() {
     start_new_forgejo_log
 
     check_dir || return $?
     check_forgejo_container || return $?
+    stop_forgejo || return $?
     create_forgejo_dump || return $?
-    copy_dump || return $?
+
+    # Bring Forgejo back before validating to keep the downtime short.
+    start_forgejo || return $?
+
     validate_dump || return $?
     write_state_file || return $?
-
-    remove_container_dump
 
     echo "$(date) [INFO] [FORGEJO_SYSTEM] Forgejo backup artifact ready: $HOST_DUMP"
     return 0

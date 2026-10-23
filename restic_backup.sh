@@ -2,12 +2,14 @@
 
 set -u
 
+. "$(dirname -- "$(realpath -- "$0")")/load-env.sh"
+
+require_env RESTIC_REPOSITORY RESTIC_PASSWORD_FILE LOG_DIR \
+    RESTIC_KEEP_DAILY RESTIC_KEEP_WEEKLY RESTIC_CHECK_SUBSETS
+
 WORKING_DIR="${1:?Usage: $0 <working-directory>}"
 
-export RESTIC_REPOSITORY="$HOME/forgejo-restic-repo"
-export RESTIC_PASSWORD_FILE="$HOME/.forgejo-restic-pass"
-
-RESTIC_LOG="$HOME/source-code-backup-logs/restic_output.log"
+RESTIC_LOG="$LOG_DIR/restic_output.log"
 LOCK_FILE="/tmp/restic_backup.lock"
 
 if ! mkdir -p "$(dirname "$RESTIC_LOG")"; then
@@ -229,22 +231,12 @@ cleanup_snapshots() {
 
     err_file=$(mktemp)
 
-    # forget_output=$(
-    #     restic forget \
-    #         --path "$WORKING_DIR" \
-    #         --host "$(hostname)" \
-    #         --keep-daily 7 \
-    #         --keep-weekly 46 \
-    #         --json \
-    #         2>"$err_file"
-    # )
-
-    #for testing
-        forget_output=$(
+    forget_output=$(
         restic forget \
             --path "$WORKING_DIR" \
             --host "$(hostname)" \
-            --keep-last 10 \
+            --keep-daily "$RESTIC_KEEP_DAILY" \
+            --keep-weekly "$RESTIC_KEEP_WEEKLY" \
             --json \
             2>"$err_file"
     )
@@ -264,9 +256,11 @@ cleanup_snapshots() {
         return "$exit_code"
     fi
 
-    jq -r '
+    jq -r \
+        --arg daily "$RESTIC_KEEP_DAILY" \
+        --arg weekly "$RESTIC_KEEP_WEEKLY" '
         .[] |
-        "policy: keep-daily 7, keep-weekly 46 | host=\(.host) paths=\(.paths|join(","))",
+        "policy: keep-daily \($daily), keep-weekly \($weekly) | host=\(.host) paths=\(.paths|join(","))",
         "kept \(.keep|length), removed \(.remove // [] | length)",
         (
             .remove // [] |
@@ -355,7 +349,10 @@ main() {
         return "$exit_code"
     }
 
-    check_repo_integrity_full || {
+    # Read a different 1/N of the pack data each day, so every byte is
+    # verified once every N days without a full read each night.
+    check_repo_integrity_subset \
+        "$(( $(date +%s) / 86400 % RESTIC_CHECK_SUBSETS + 1 ))/$RESTIC_CHECK_SUBSETS" || {
         exit_code=$?
         script_exit_log "$exit_code"
         return "$exit_code"
