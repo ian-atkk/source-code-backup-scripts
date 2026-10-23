@@ -57,7 +57,7 @@ prepare_restore_directory() {
 }
 
 validate_snapshot() {
-    if ! restic snapshots "$SNAPSHOT_ID" >/dev/null 2>&1; then
+    if ! restic snapshots --no-lock "$SNAPSHOT_ID" >/dev/null 2>>"$RESTIC_LOG"; then
         echo "$(date) [ERROR] [RESTIC_RESTORE] Snapshot not found: $SNAPSHOT_ID"
         return 1
     fi
@@ -75,12 +75,11 @@ restore_snapshot() {
 
     {
         printf '\n--- RESTORE ---\n'
+        printf 'repository: %s\n' "$RESTIC_REPOSITORY"
         printf 'snapshot: %s\n' "$SNAPSHOT_ID"
-        printf 'snapshot path: %s\n' "$SNAPSHOT_PATH"
-        printf 'restore target: %s\n' "$RESTORE_DIR"
     } >>"$RESTIC_LOG"
 
-    restic restore \
+    restic restore --no-lock \
         "${SNAPSHOT_ID}:${SNAPSHOT_PATH}" \
         --target "$RESTORE_DIR" \
         >>"$RESTIC_LOG" 2>&1
@@ -91,7 +90,7 @@ restore_snapshot() {
         echo "$(date) [ERROR] [RESTIC_RESTORE] Snapshot restore failed (exit_code=$exit_code)"
         return "$exit_code"
     fi
-
+    echo "$(date) [INFO] [RESTIC_RESTORE] Snapshot successfully restored from: $RESTIC_REPOSITORY"
     echo "$(date) [INFO] [RESTIC_RESTORE] Snapshot successfully restored to: $RESTORE_DIR"
     return 0
 }

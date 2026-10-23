@@ -239,6 +239,7 @@ cleanup_snapshots() {
             --host "$(hostname)" \
             --keep-daily "$RESTIC_KEEP_DAILY" \
             --keep-weekly "$RESTIC_KEEP_WEEKLY" \
+            --keep-tag pinned \
             --json \
             2>"$err_file"
     )

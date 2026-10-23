@@ -2,3 +2,4 @@
 backup.env
 rclone_writer.env
 restic_reader.env
+backup.restore-s3.env
