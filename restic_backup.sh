@@ -1,4 +1,5 @@
 #!/bin/bash
+#
 # Backs up a directory with restic, applies daily/weekly retention, prunes, checks a rotating data subset, and sends a desktop notification with the result.
 set -u
 
@@ -357,7 +358,7 @@ main() {
     # Read a different 1/N of the pack data each day, so every byte is
     # verified once every N days without a full read each night.
     check_repo_integrity_subset \
-        "$(( $(date +%s) / 86400 % RESTIC_CHECK_SUBSETS + 1 ))/$RESTIC_CHECK_SUBSETS" || {
+        "$(($(date +%s) / 86400 % RESTIC_CHECK_SUBSETS + 1))/$RESTIC_CHECK_SUBSETS" || {
         exit_code=$?
         script_exit_log "$exit_code"
         return "$exit_code"

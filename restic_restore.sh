@@ -15,15 +15,12 @@ RESTIC_LOG="$LOG_DIR/restic_output.log"
 
 SNAPSHOT_PATH="$BACKUP_DIR"
 
-
 if ! mkdir -p "$(dirname "$RESTIC_LOG")"; then
     echo "$(date) [ERROR] [RESTIC_RESTORE] Failed to create log directory"
     exit 1
 fi
 
-
-check_requirements()
-{
+check_requirements() {
     if ! command -v restic >/dev/null 2>&1; then
         echo "$(date) [ERROR] [RESTIC_RESTORE] restic is not installed"
         return 1
@@ -42,9 +39,7 @@ check_requirements()
     return 0
 }
 
-
-prepare_restore_directory()
-{
+prepare_restore_directory() {
     if [ -e "$RESTORE_DIR" ] && [ ! -d "$RESTORE_DIR" ]; then
         echo "$(date) [ERROR] [RESTIC_RESTORE] Restore target exists but is not a directory: $RESTORE_DIR"
         return 1
@@ -65,9 +60,7 @@ prepare_restore_directory()
     return 0
 }
 
-
-validate_snapshot()
-{
+validate_snapshot() {
     if ! restic snapshots "$SNAPSHOT_ID" >/dev/null 2>&1; then
         echo "$(date) [ERROR] [RESTIC_RESTORE] Snapshot not found: $SNAPSHOT_ID"
         return 1
@@ -77,9 +70,7 @@ validate_snapshot()
     return 0
 }
 
-
-restore_snapshot()
-{
+restore_snapshot() {
     local exit_code
 
     echo "$(date) [INFO] [RESTIC_RESTORE] Restoring snapshot: $SNAPSHOT_ID"
@@ -91,12 +82,12 @@ restore_snapshot()
         printf 'snapshot: %s\n' "$SNAPSHOT_ID"
         printf 'snapshot path: %s\n' "$SNAPSHOT_PATH"
         printf 'restore target: %s\n' "$RESTORE_DIR"
-    } >> "$RESTIC_LOG"
+    } >>"$RESTIC_LOG"
 
     restic restore \
         "${SNAPSHOT_ID}:${SNAPSHOT_PATH}" \
         --target "$RESTORE_DIR" \
-        >> "$RESTIC_LOG" 2>&1
+        >>"$RESTIC_LOG" 2>&1
 
     exit_code=$?
 
@@ -109,9 +100,7 @@ restore_snapshot()
     return 0
 }
 
-
-validate_restored_dump()
-{
+validate_restored_dump() {
     local dump_count
     local restored_dump
 
@@ -164,14 +153,12 @@ validate_restored_dump()
         echo "TAR integrity: OK"
         echo "restored artifact: $restored_dump"
         sha256sum "$restored_dump"
-    } >> "$RESTIC_LOG"
+    } >>"$RESTIC_LOG"
 
     return 0
 }
 
-
-main()
-{
+main() {
     local exit_code
 
     check_requirements || {
@@ -207,7 +194,6 @@ main()
     echo "$(date) [INFO] [RESTIC_RESTORE] Restic restore cycle completed successfully"
     return 0
 }
-
 
 if main; then
     exit 0

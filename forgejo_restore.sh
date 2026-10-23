@@ -20,9 +20,7 @@ COMPOSE_FILE="$RECOVERY_DIR/compose-recovery.yaml"
 
 RESTORE_LOG="$LOG_DIR/forgejo_output.log"
 
-
-restore_log()
-{
+restore_log() {
     local level="$1"
     local component="$2"
 
@@ -35,9 +33,7 @@ restore_log()
         "$*" | tee -a "$RESTORE_LOG"
 }
 
-
-start_new_restore_log()
-{
+start_new_restore_log() {
     local bar
 
     bar=$(printf '#%.0s' {1..80})
@@ -47,12 +43,10 @@ start_new_restore_log()
         printf '##  FORGEJO RESTORE  |  %-55s##\n' \
             "$(date '+%Y-%m-%d %H:%M:%S %Z')"
         printf '%s\n' "$bar"
-    } >> "$RESTORE_LOG"
+    } >>"$RESTORE_LOG"
 }
 
-
-check_requirements()
-{
+check_requirements() {
     local command_name
 
     restore_log INFO CHECK "Checking restore requirements"
@@ -101,9 +95,7 @@ check_requirements()
     return 0
 }
 
-
-prepare_recovery_directory()
-{
+prepare_recovery_directory() {
     restore_log INFO PREPARE \
         "Preparing recovery directory: $RECOVERY_DIR"
 
@@ -137,51 +129,49 @@ prepare_recovery_directory()
     return 0
 }
 
-
-validate_dump()
-{
+validate_dump() {
     local entries
     local repository_entries
 
     restore_log INFO VALIDATE \
         "Validating Forgejo dump: $DUMP_FILE"
 
-    printf '\n--- DUMP VALIDATION ---\n' >> "$RESTORE_LOG"
+    printf '\n--- DUMP VALIDATION ---\n' >>"$RESTORE_LOG"
 
-    if ! entries=$(tar -tf "$DUMP_FILE" 2>> "$RESTORE_LOG"); then
+    if ! entries=$(tar -tf "$DUMP_FILE" 2>>"$RESTORE_LOG"); then
         restore_log ERROR VALIDATE \
             "TAR integrity validation failed"
         return 1
     fi
 
-    echo "TAR integrity: OK" >> "$RESTORE_LOG"
+    echo "TAR integrity: OK" >>"$RESTORE_LOG"
 
-    if ! grep -qx 'app.ini' <<< "$entries"; then
+    if ! grep -qx 'app.ini' <<<"$entries"; then
         restore_log ERROR VALIDATE \
             "app.ini not found in Forgejo dump"
         return 1
     fi
 
-    echo "found: app.ini" >> "$RESTORE_LOG"
+    echo "found: app.ini" >>"$RESTORE_LOG"
 
-    if ! grep -qx 'forgejo-db.sql' <<< "$entries"; then
+    if ! grep -qx 'forgejo-db.sql' <<<"$entries"; then
         restore_log ERROR VALIDATE \
             "forgejo-db.sql not found in Forgejo dump"
         return 1
     fi
 
-    echo "found: forgejo-db.sql" >> "$RESTORE_LOG"
+    echo "found: forgejo-db.sql" >>"$RESTORE_LOG"
 
-    if ! grep -q '^data/' <<< "$entries"; then
+    if ! grep -q '^data/' <<<"$entries"; then
         restore_log ERROR VALIDATE \
             "Forgejo application data not found in dump"
         return 1
     fi
 
-    echo "found: data/" >> "$RESTORE_LOG"
+    echo "found: data/" >>"$RESTORE_LOG"
 
     repository_entries=$(
-        grep -c '^repos/' <<< "$entries" || true
+        grep -c '^repos/' <<<"$entries" || true
     )
 
     if [ "$repository_entries" -eq 0 ]; then
@@ -191,7 +181,7 @@ validate_dump()
     fi
 
     echo "found: repos/ ($repository_entries entries)" \
-        >> "$RESTORE_LOG"
+        >>"$RESTORE_LOG"
 
     restore_log INFO VALIDATE \
         "Forgejo dump validation successful"
@@ -199,17 +189,15 @@ validate_dump()
     return 0
 }
 
-
-extract_dump()
-{
+extract_dump() {
     restore_log INFO EXTRACT \
         "Extracting Forgejo dump into: $EXTRACT_DIR"
 
-    printf '\n--- EXTRACT ---\n' >> "$RESTORE_LOG"
+    printf '\n--- EXTRACT ---\n' >>"$RESTORE_LOG"
 
     if ! tar -xf "$DUMP_FILE" \
         -C "$EXTRACT_DIR" \
-        >> "$RESTORE_LOG" 2>&1; then
+        >>"$RESTORE_LOG" 2>&1; then
 
         restore_log ERROR EXTRACT \
             "Failed to extract Forgejo dump"
@@ -240,13 +228,11 @@ extract_dump()
     return 0
 }
 
-
-prepare_forgejo_data()
-{
+prepare_forgejo_data() {
     restore_log INFO DATA \
         "Reconstructing Forgejo data directory"
 
-    printf '\n--- PREPARE DATA ---\n' >> "$RESTORE_LOG"
+    printf '\n--- PREPARE DATA ---\n' >>"$RESTORE_LOG"
 
     if ! mkdir -p \
         "$RECOVERY_DATA/gitea/conf" \
@@ -303,9 +289,7 @@ prepare_forgejo_data()
     return 0
 }
 
-
-configure_recovery_instance()
-{
+configure_recovery_instance() {
     local app_ini
     local recovery_url
 
@@ -315,7 +299,7 @@ configure_recovery_instance()
     restore_log INFO CONFIG \
         "Configuring isolated recovery instance"
 
-    printf '\n--- CONFIGURATION ---\n' >> "$RESTORE_LOG"
+    printf '\n--- CONFIGURATION ---\n' >>"$RESTORE_LOG"
 
     if grep -qE '^[[:space:]]*ROOT_URL[[:space:]]*=' "$app_ini"; then
         if ! sed -i \
@@ -330,7 +314,7 @@ configure_recovery_instance()
         {
             printf '\n[server]\n'
             printf 'ROOT_URL = %s\n' "$recovery_url"
-        } >> "$app_ini"
+        } >>"$app_ini"
     fi
 
     restore_log INFO CONFIG \
@@ -339,13 +323,11 @@ configure_recovery_instance()
     return 0
 }
 
-
-fix_permissions()
-{
+fix_permissions() {
     restore_log INFO PERMISSIONS \
         "Setting Forgejo data ownership and permissions"
 
-    printf '\n--- PERMISSIONS ---\n' >> "$RESTORE_LOG"
+    printf '\n--- PERMISSIONS ---\n' >>"$RESTORE_LOG"
 
     if ! touch \
         "$RECOVERY_DATA/git/.ssh/authorized_keys"; then
@@ -386,13 +368,11 @@ fix_permissions()
     return 0
 }
 
-
-create_recovery_compose()
-{
+create_recovery_compose() {
     restore_log INFO COMPOSE \
         "Creating recovery Compose file: $COMPOSE_FILE"
 
-    cat > "$COMPOSE_FILE" <<EOF
+    cat >"$COMPOSE_FILE" <<EOF
 services:
   server:
     image: ${FORGEJO_IMAGE}
@@ -414,7 +394,7 @@ EOF
     if ! docker compose \
         -f "$COMPOSE_FILE" \
         config \
-        >> "$RESTORE_LOG" 2>&1; then
+        >>"$RESTORE_LOG" 2>&1; then
 
         restore_log ERROR COMPOSE \
             "Generated Compose configuration is invalid"
@@ -427,18 +407,16 @@ EOF
     return 0
 }
 
-
-start_recovery_instance()
-{
+start_recovery_instance() {
     restore_log INFO START \
         "Starting isolated Forgejo recovery container"
 
-    printf '\n--- CONTAINER START ---\n' >> "$RESTORE_LOG"
+    printf '\n--- CONTAINER START ---\n' >>"$RESTORE_LOG"
 
     if ! docker compose \
         -f "$COMPOSE_FILE" \
         up -d \
-        >> "$RESTORE_LOG" 2>&1; then
+        >>"$RESTORE_LOG" 2>&1; then
 
         restore_log ERROR START \
             "Failed to start Forgejo recovery container"
@@ -459,7 +437,7 @@ start_recovery_instance()
 
         docker logs "$RECOVERY_CONTAINER" \
             --tail 100 \
-            >> "$RESTORE_LOG" 2>&1 || true
+            >>"$RESTORE_LOG" 2>&1 || true
 
         return 1
     fi
@@ -470,15 +448,13 @@ start_recovery_instance()
     return 0
 }
 
-
-check_startup_logs()
-{
+check_startup_logs() {
     local startup_logs
 
     restore_log INFO CHECK \
         "Checking Forgejo recovery startup logs"
 
-    printf '\n--- STARTUP LOGS ---\n' >> "$RESTORE_LOG"
+    printf '\n--- STARTUP LOGS ---\n' >>"$RESTORE_LOG"
 
     startup_logs=$(
         docker logs "$RECOVERY_CONTAINER" \
@@ -486,11 +462,11 @@ check_startup_logs()
             2>&1
     )
 
-    printf '%s\n' "$startup_logs" >> "$RESTORE_LOG"
+    printf '%s\n' "$startup_logs" >>"$RESTORE_LOG"
 
     if grep -qE \
         '\[F\]|permission denied|database.*failed|Init.*failed' \
-        <<< "$startup_logs"; then
+        <<<"$startup_logs"; then
 
         restore_log ERROR CHECK \
             "Fatal error detected in Forgejo startup logs"
@@ -499,7 +475,7 @@ check_startup_logs()
 
     if ! grep -q \
         'ORM engine initialization successful' \
-        <<< "$startup_logs"; then
+        <<<"$startup_logs"; then
 
         restore_log WARNING CHECK \
             "ORM initialization confirmation was not found yet"
@@ -513,9 +489,7 @@ check_startup_logs()
     return 0
 }
 
-
-show_verification_steps()
-{
+show_verification_steps() {
     printf '\n'
     restore_log INFO SYSTEM \
         "Forgejo recovery preparation completed"
@@ -537,9 +511,7 @@ show_verification_steps()
         "$COMPOSE_FILE"
 }
 
-
-main()
-{
+main() {
     local exit_code
 
     start_new_restore_log
@@ -597,7 +569,6 @@ main()
     show_verification_steps
     return 0
 }
-
 
 if main; then
     exit 0

@@ -63,7 +63,18 @@ if [ "$exit_code" -ne 0 ]; then
     exit "$exit_code"
 fi
 
-# Step 3: Delete only the exact dump created during this cycle.
+# Step 3: Mirror the restic repository offsite.
+"$SCRIPT_DIR/rclone_sync.sh"
+
+sync_exit_code=$?
+
+if [ "$sync_exit_code" -ne 0 ]; then
+    # The local backup is already safe in restic, so cleanup can still run;
+    # the failure is reported at the end of the cycle.
+    echo "$(date) [ERROR] [BACKUP_CYCLE] Offsite sync failed (exit_code=$sync_exit_code)"
+fi
+
+# Step 4: Delete only the exact dump created during this cycle.
 "$SCRIPT_DIR/cleanup-forgejo-dump.sh" \
     "$DUMP_FILE" \
     "$BACKUP_DIR"
@@ -71,16 +82,18 @@ fi
 cleanup_exit_code=$?
 
 if [ "$cleanup_exit_code" -ne 0 ]; then
-    echo "$(date) [WARNING] [BACKUP_CYCLE] Restic succeeded, but staging cleanup failed"
-
-    rm -f -- "$STATE_FILE"
-
     # The backup itself succeeded. The dump remaining on disk is safer
     # than reporting the protected backup as failed.
-    exit 0
+    echo "$(date) [WARNING] [BACKUP_CYCLE] Restic succeeded, but staging cleanup failed"
 fi
 
 rm -f -- "$STATE_FILE"
 
+if [ "$sync_exit_code" -ne 0 ]; then
+    echo "$(date) [WARNING] [BACKUP_CYCLE] Backup cycle finished, but offsite copy is out of date"
+    exit "$sync_exit_code"
+fi
+
 echo "$(date) [INFO] [BACKUP_CYCLE] Backup cycle completed successfully"
 exit 0
+
