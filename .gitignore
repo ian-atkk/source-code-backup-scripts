@@ -1,2 +1,3 @@
 # Real configuration stays on the server (will hold credentials later).
 backup.env
+rclone_writer.env

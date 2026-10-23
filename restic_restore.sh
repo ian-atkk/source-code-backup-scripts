@@ -26,10 +26,6 @@ check_requirements() {
         return 1
     fi
 
-    if [ ! -d "$RESTIC_REPOSITORY" ]; then
-        echo "$(date) [ERROR] [RESTIC_RESTORE] Restic repository does not exist: $RESTIC_REPOSITORY"
-        return 1
-    fi
 
     if [ ! -r "$RESTIC_PASSWORD_FILE" ]; then
         echo "$(date) [ERROR] [RESTIC_RESTORE] Password file is not readable: $RESTIC_PASSWORD_FILE"

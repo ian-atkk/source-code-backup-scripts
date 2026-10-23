@@ -35,10 +35,6 @@ if ! command -v restic >/dev/null 2>&1; then
     exit 1
 fi
 
-if ! command -v rclone >/dev/null 2>&1; then
-    echo "$(date) [ERROR] [RESTIC_SYSTEM] rclone is not installed."
-    exit 1
-fi
 
 if ! command -v jq >/dev/null 2>&1; then
     echo "$(date) [ERROR] [RESTIC_SYSTEM] jq is not installed."
@@ -358,7 +354,7 @@ main() {
     # Read a different 1/N of the pack data each day, so every byte is
     # verified once every N days without a full read each night.
     check_repo_integrity_subset \
-        "$(($(date +%s) / 86400 % RESTIC_CHECK_SUBSETS + 1))/$RESTIC_CHECK_SUBSETS" || {
+        "$(( $(date +%s) / 86400 % RESTIC_CHECK_SUBSETS + 1 ))/$RESTIC_CHECK_SUBSETS" || {
         exit_code=$?
         script_exit_log "$exit_code"
         return "$exit_code"
