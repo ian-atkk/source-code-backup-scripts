@@ -28,7 +28,7 @@ restore_log()
     shift 2
 
     printf '%s [%s] [FORGEJO_RESTORE_%s] %s\n' \
-        "$(date '+%Y-%m-%d %H:%M:%S %Z')" \
+        "$(date)" \
         "$level" \
         "$component" \
         "$*" | tee -a "$RESTORE_LOG"
