@@ -10,7 +10,7 @@ export RESTIC_PASSWORD_FILE="$HOME/.forgejo-restic-pass"
 
 RESTIC_LOG="$HOME/source-code-backup-logs/restic_output.log"
 
-SNAPSHOT_PATH="/home/iannegishi/forgejo-backups"
+SNAPSHOT_PATH="$HOME/forgejo-backups"
 
 
 if ! mkdir -p "$(dirname "$RESTIC_LOG")"; then

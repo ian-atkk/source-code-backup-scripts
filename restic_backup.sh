@@ -229,12 +229,22 @@ cleanup_snapshots() {
 
     err_file=$(mktemp)
 
-    forget_output=$(
+    # forget_output=$(
+    #     restic forget \
+    #         --path "$WORKING_DIR" \
+    #         --host "$(hostname)" \
+    #         --keep-daily 7 \
+    #         --keep-weekly 46 \
+    #         --json \
+    #         2>"$err_file"
+    # )
+
+    #for testing
+        forget_output=$(
         restic forget \
             --path "$WORKING_DIR" \
             --host "$(hostname)" \
-            --keep-daily 7 \
-            --keep-weekly 46 \
+            --keep-last 10 \
             --json \
             2>"$err_file"
     )

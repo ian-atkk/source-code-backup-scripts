@@ -6,7 +6,7 @@ SNAPSHOT_ID="${1:?Usage: $0 <snapshot-id>}"
 
 SCRIPT_DIR="$HOME/source-code-backup-scripts"
 
-RESTORE_DIR="$HOME/forgejo-restic-restore2"
+RESTORE_DIR="$HOME/forgejo-restic-restore1"
 RECOVERY_DIR="$HOME/forgejo-recovery"
 
 RECOVERY_CONTAINER="forgejo-recovery"
