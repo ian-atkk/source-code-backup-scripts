@@ -1,5 +1,5 @@
 #!/bin/bash
-# Syncs the restic repo to another location and verifies the copy.
+# Syncs the restic repo to another location (--checksum verifies each file) and logs local vs remote sizes.
 
 set -u
 
@@ -85,26 +85,11 @@ sync_repository() {
     return 0
 }
 
-verify_sync() {
-    local exit_code
+log_sizes() {
     local local_size
     local remote_size
 
-    echo "$(date) [INFO] [RCLONE_VERIFY] Comparing $RESTIC_REPOSITORY with $RCLONE_REMOTE"
-    echo -e "\n--- VERIFY ---" >>"$RCLONE_LOG"
-
-    rclone check \
-        "$RESTIC_REPOSITORY" \
-        "$RCLONE_REMOTE" \
-        --log-file "$RCLONE_LOG" \
-        --log-level INFO
-
-    exit_code=$?
-
-    if [ "$exit_code" -ne 0 ]; then
-        echo "$(date) [ERROR] [RCLONE_VERIFY] Destination does not match source (exit_code=$exit_code)"
-        return "$exit_code"
-    fi
+    echo -e "\n--- SIZES ---" >>"$RCLONE_LOG"
 
     local_size=$(rclone size "$RESTIC_REPOSITORY" --json 2>>"$RCLONE_LOG")
     remote_size=$(rclone size "$RCLONE_REMOTE" --json 2>>"$RCLONE_LOG")
@@ -113,16 +98,13 @@ verify_sync() {
         echo "local:  $(jq -r '"\(.count) files, \(.bytes) bytes"' <<<"$local_size")"
         echo "remote: $(jq -r '"\(.count) files, \(.bytes) bytes"' <<<"$remote_size")"
     } >>"$RCLONE_LOG"
-
-    echo "$(date) [INFO] [RCLONE_VERIFY] Destination matches source"
-    return 0
 }
 
 main() {
     start_new_rclone_log
     check_requirements || return $?
     sync_repository || return $?
-    verify_sync || return $?
+    log_sizes
     return 0
 }
 
