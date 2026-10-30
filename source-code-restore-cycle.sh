@@ -5,6 +5,8 @@ set -u
 SCRIPT_DIR=$(dirname -- "$(realpath -- "$0")")
 
 . "$SCRIPT_DIR/load-env.sh" || exit 1
+# Temporary: the RECOVERY_* checks below move into sources/forgejo/restore.sh in step 5.
+load_source_env forgejo
 
 require_env RESTORE_DIR RECOVERY_DIR RECOVERY_CONTAINER RECOVERY_PORT
 

@@ -9,7 +9,7 @@ SCRIPT_DIR=$(dirname -- "$(realpath -- "$0")")
 
 . "$SCRIPT_DIR/load-env.sh" || exit 1
 
-require_env FORGEJO_DIR BACKUP_DIR STATE_FILE LOCK_FILE
+require_env BACKUP_DIR STATE_FILE LOCK_FILE
 
 # Only one cycle at a time: the dump step stops and starts Forgejo.
 exec 9>"$LOCK_FILE"
@@ -24,9 +24,8 @@ echo "$(date) [INFO] [BACKUP_CYCLE] Starting backup cycle"
 # Remove state left by an earlier interrupted run.
 rm -f -- "$STATE_FILE"
 
-# Step 1: Create and validate the Forgejo dump.
+# Step 1: Create the Forgejo dump.
 "$SCRIPT_DIR/sources/forgejo/backup.sh" \
-  "$FORGEJO_DIR" \
   "$BACKUP_DIR" \
   "$STATE_FILE"
 
