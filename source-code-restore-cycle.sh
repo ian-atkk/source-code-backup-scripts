@@ -67,6 +67,18 @@ fi
 
 echo "$(date) [INFO] [RESTORE_CYCLE] Restored artifact found: $DUMP_FILE"
 
+# Step 2b: Verify the restored dump.
+"$SCRIPT_DIR/sources/forgejo/verify.sh" "$RESTORE_DIR"
+
+exit_code=$?
+
+if [ "$exit_code" -ne 0 ]; then
+  echo "$(date) [ERROR] [RESTORE_CYCLE] Unable to verify dump (exit_code=$exit_code)"
+  exit "$exit_code"
+fi
+
+echo "$(date) [INFO] [RESTORE_CYCLE] Restored dump verified: $DUMP_FILE"
+
 # Step 3: Reconstruct and start the recovery Forgejo instance.
 sudo -E "$SCRIPT_DIR/sources/forgejo/restore.sh" \
   "$DUMP_FILE" \

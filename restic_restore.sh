@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Restores one restic snapshot into an empty directory and checks that it holds a single readable Forgejo dump tar.
+# Restores one restic snapshot into an empty directory.
 
 set -u
 
@@ -94,64 +94,6 @@ restore_snapshot() {
   return 0
 }
 
-validate_restored_dump() {
-  local dump_count
-  local restored_dump
-
-  dump_count=$(
-    find "$RESTORE_DIR" \
-      -maxdepth 1 \
-      -type f \
-      -name 'forgejo-dump-*.tar' |
-      wc -l
-  )
-
-  if [ "$dump_count" -eq 0 ]; then
-    echo "$(date) [ERROR] [RESTIC_RESTORE] No Forgejo dump found in restore directory"
-    return 1
-  fi
-
-  if [ "$dump_count" -gt 1 ]; then
-    echo "$(date) [ERROR] [RESTIC_RESTORE] Multiple Forgejo dumps found in restore directory"
-    return 1
-  fi
-
-  restored_dump=$(
-    find "$RESTORE_DIR" \
-      -maxdepth 1 \
-      -type f \
-      -name 'forgejo-dump-*.tar' \
-      -print \
-      -quit
-  )
-
-  if [ ! -s "$restored_dump" ]; then
-    echo "$(date) [ERROR] [RESTIC_RESTORE] Restored dump is empty: $restored_dump"
-    return 1
-  fi
-
-  if ! command -v tar >/dev/null 2>&1; then
-    echo "$(date) [ERROR] [RESTIC_RESTORE] tar is not installed"
-    return 1
-  fi
-
-  if ! tar -tf "$restored_dump" >/dev/null 2>&1; then
-    echo "$(date) [ERROR] [RESTIC_RESTORE] Restored TAR failed integrity validation: $restored_dump"
-    return 1
-  fi
-
-  echo "$(date) [INFO] [RESTIC_RESTORE] Restored TAR integrity: OK"
-  echo "$(date) [INFO] [RESTIC_RESTORE] Restored artifact: $restored_dump"
-
-  {
-    echo "TAR integrity: OK"
-    echo "restored artifact: $restored_dump"
-    sha256sum "$restored_dump"
-  } >>"$RESTIC_LOG"
-
-  return 0
-}
-
 main() {
   local exit_code
 
@@ -176,12 +118,6 @@ main() {
   restore_snapshot || {
     exit_code=$?
     echo "$(date) [ERROR] [RESTIC_RESTORE] Restore operation failed"
-    return "$exit_code"
-  }
-
-  validate_restored_dump || {
-    exit_code=$?
-    echo "$(date) [ERROR] [RESTIC_RESTORE] Restored artifact validation failed"
     return "$exit_code"
   }
 

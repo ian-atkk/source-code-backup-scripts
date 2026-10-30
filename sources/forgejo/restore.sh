@@ -466,11 +466,6 @@ main() {
     return "$exit_code"
   }
 
-  validate_dump || {
-    exit_code=$?
-    return "$exit_code"
-  }
-
   extract_dump || {
     exit_code=$?
     return "$exit_code"
