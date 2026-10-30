@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Runs one full backup cycle: dumps and validates Forgejo, backs the dump up with restic,
+# Runs one full backup cycle on Forgejo, backs the dump up with restic,
 # mirrors the restic repo offsite with rclone, then deletes the staged dump.
 
 set -u
@@ -37,6 +37,7 @@ if [ "$exit_code" -ne 0 ]; then
     exit "$exit_code"
 fi
 
+
 # The Forgejo script must record the exact dump it created.
 if [ ! -s "$STATE_FILE" ]; then
     echo "$(date) [ERROR] [BACKUP_CYCLE] Dump state file is missing or empty"
@@ -48,10 +49,18 @@ DUMP_FILE=$(<"$STATE_FILE")
 # Confirm the recorded file exists before running Restic.
 if [ ! -s "$DUMP_FILE" ]; then
     echo "$(date) [ERROR] [BACKUP_CYCLE] Recorded Forgejo dump is missing or empty: $DUMP_FILE"
-    rm -f -- "$STATE_FILE"
+    rm -f -- "$DUMP_FILE" "$STATE_FILE"
     exit 1
 fi
 
+
+"$SCRIPT_DIR/sources/forgejo/verify.sh" "$BACKUP_DIR"
+exit_code=$?
+if [ "$exit_code" -ne 0 ]; then
+    echo "$(date) [ERROR] [BACKUP_CYCLE] Unable to verify dump (exit_code=$exit_code)"
+    rm -f -- "$DUMP_FILE" "$STATE_FILE"
+    exit "$exit_code"
+fi
 echo "$(date) [INFO] [BACKUP_CYCLE] Forgejo artifact ready: $DUMP_FILE"
 
 # Step 2: Protect the staging directory with Restic.

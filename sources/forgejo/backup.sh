@@ -213,49 +213,7 @@ create_forgejo_dump() {
     return 0
 }
 
-validate_dump() {
-    local entries
-    local repository_entries
 
-    echo "$(date) [INFO] [FORGEJO_VALIDATE] Validating dump: $HOST_DUMP"
-    echo -e "\n--- VALIDATE ---" >>"$FORGEJO_LOG"
-
-    # Listing reads the whole archive, so truncation is detected here.
-    if entries=$(tar -tf "$HOST_DUMP" 2>>"$FORGEJO_LOG"); then
-        echo "TAR integrity: OK" >>"$FORGEJO_LOG"
-    else
-        echo "$(date) [ERROR] [FORGEJO_VALIDATE] TAR integrity check failed: $HOST_DUMP"
-        return 1
-    fi
-
-    if ! grep -qx 'app.ini' <<<"$entries"; then
-        echo "$(date) [ERROR] [FORGEJO_VALIDATE] app.ini not found in dump"
-        return 1
-    fi
-
-    echo "found: app.ini" >>"$FORGEJO_LOG"
-
-    if ! grep -qx 'forgejo-db.sql' <<<"$entries"; then
-        echo "$(date) [ERROR] [FORGEJO_VALIDATE] forgejo-db.sql not found in dump"
-        return 1
-    fi
-
-    echo "found: forgejo-db.sql" >>"$FORGEJO_LOG"
-
-    repository_entries=$(
-        grep -c '^repos/' <<<"$entries" || true
-    )
-
-    if [ "$repository_entries" -eq 0 ]; then
-        echo "$(date) [ERROR] [FORGEJO_VALIDATE] Repository data not found in dump"
-        return 1
-    fi
-
-    echo "found: repos/ ($repository_entries entries)" >>"$FORGEJO_LOG"
-
-    echo "$(date) [INFO] [FORGEJO_VALIDATE] Forgejo dump validation successful"
-    return 0
-}
 
 write_state_file() {
     local temporary_state
@@ -304,7 +262,6 @@ main() {
     # Bring Forgejo back before validating to keep the downtime short.
     start_forgejo || return $?
 
-    validate_dump || return $?
     write_state_file || return $?
 
     echo "$(date) [INFO] [FORGEJO_SYSTEM] Forgejo backup artifact ready: $HOST_DUMP"
