@@ -4,7 +4,7 @@
 
 set -u
 . "$(dirname -- "$(realpath -- "$0")")/../../load-env.sh" || exit 1
-
+load_source_env forgejo
 require_env FORGEJO_SERVICE FORGEJO_CONTAINER FORGEJO_UID LOG_DIR
 
 FORGEJO_DIR="${1:?Usage: $0 <forgejo-directory> <destination-directory> <state-file>}"
