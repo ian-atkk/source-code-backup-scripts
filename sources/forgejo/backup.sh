@@ -3,8 +3,7 @@
 # Stops Forgejo, creates and validates a tar dump for restic, then restarts Forgejo and records the dump path in a state file.
 
 set -u
-
-. "$(dirname -- "$(realpath -- "$0")")/load-env.sh"
+. "$(dirname -- "$(realpath -- "$0")")/../../load-env.sh" || exit 1
 
 require_env FORGEJO_SERVICE FORGEJO_CONTAINER FORGEJO_UID LOG_DIR
 

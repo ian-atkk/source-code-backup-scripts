@@ -7,7 +7,7 @@ set -u
 
 SCRIPT_DIR=$(dirname -- "$(realpath -- "$0")")
 
-. "$SCRIPT_DIR/load-env.sh"
+. "$SCRIPT_DIR/load-env.sh" || exit 1
 
 require_env FORGEJO_DIR BACKUP_DIR STATE_FILE LOCK_FILE
 
@@ -25,7 +25,7 @@ echo "$(date) [INFO] [BACKUP_CYCLE] Starting backup cycle"
 rm -f -- "$STATE_FILE"
 
 # Step 1: Create and validate the Forgejo dump.
-"$SCRIPT_DIR/forgejo_backup.sh" \
+"$SCRIPT_DIR/sources/forgejo/backup.sh" \
     "$FORGEJO_DIR" \
     "$BACKUP_DIR" \
     "$STATE_FILE"

@@ -4,7 +4,7 @@ set -u
 
 SCRIPT_DIR=$(dirname -- "$(realpath -- "$0")")
 
-. "$SCRIPT_DIR/load-env.sh"
+. "$SCRIPT_DIR/load-env.sh" || exit 1
 
 require_env RESTORE_DIR RECOVERY_DIR RECOVERY_CONTAINER RECOVERY_PORT
 
@@ -68,7 +68,7 @@ fi
 echo "$(date) [INFO] [RESTORE_CYCLE] Restored artifact found: $DUMP_FILE"
 
 # Step 3: Reconstruct and start the recovery Forgejo instance.
-sudo -E "$SCRIPT_DIR/forgejo_restore.sh" \
+sudo -E "$SCRIPT_DIR/sources/forgejo/restore.sh" \
     "$DUMP_FILE" \
     "$RECOVERY_DIR"
 

@@ -3,7 +3,7 @@
 
 set -u
 
-. "$(dirname -- "$(realpath -- "$0")")/load-env.sh"
+. "$(dirname -- "$(realpath -- "$0")")/../../load-env.sh" || exit 1
 
 require_env FORGEJO_IMAGE FORGEJO_UID FORGEJO_GID \
     RECOVERY_CONTAINER RECOVERY_PORT LOG_DIR
