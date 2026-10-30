@@ -6,7 +6,6 @@
 ENV_ROOT=$(dirname -- "$(realpath -- "${BASH_SOURCE[0]}")")
 ENV_FILE="${BACKUP_ENV_FILE:-$ENV_ROOT/backup.env}"
 
-
 if [ ! -r "$ENV_FILE" ]; then
   echo "$(date) [ERROR] [ENV] Env file not found or not readable: $ENV_FILE"
   echo "$(date) [ERROR] [ENV] Copy backup.env.example to backup.env and adjust it"
@@ -29,7 +28,6 @@ require_env() {
     fi
   done
 }
-
 
 # Loads sources/<name>/source.env on top of the shared config.
 load_source_env() {

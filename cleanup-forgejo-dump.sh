@@ -55,13 +55,13 @@ if [ "$(dirname -- "$RESOLVED_DUMP")" != "$RESOLVED_STAGING" ]; then
 fi
 
 case "$(basename -- "$RESOLVED_DUMP")" in
-  forgejo-dump-*.tar) ;;
-  *)
-    cleanup_log ERROR \
-      "Unexpected dump filename; refusing deletion: $RESOLVED_DUMP"
+forgejo-dump-*.tar) ;;
+*)
+  cleanup_log ERROR \
+    "Unexpected dump filename; refusing deletion: $RESOLVED_DUMP"
 
-    exit 1
-    ;;
+  exit 1
+  ;;
 esac
 
 if [ ! -s "$RESOLVED_DUMP" ]; then
