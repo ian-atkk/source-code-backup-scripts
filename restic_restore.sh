@@ -6,14 +6,15 @@ set -u
 
 . "$(dirname -- "$(realpath -- "$0")")/load-env.sh"
 
-require_env RESTIC_REPOSITORY RESTIC_PASSWORD_FILE LOG_DIR BACKUP_DIR
+require_env RESTIC_REPOSITORY RESTIC_PASSWORD_FILE LOG_DIR
 
 SNAPSHOT_ID="${1:?Usage: $0 <snapshot-id> <target-directory>}"
 RESTORE_DIR="${2:?Usage: $0 <snapshot-id> <target-directory>}"
 
 RESTIC_LOG="$LOG_DIR/restic_output.log"
 
-SNAPSHOT_PATH="$BACKUP_DIR"
+# Read from the snapshot in validate_snapshot (e.g. $BACKUP_DIR/forgejo).
+SNAPSHOT_PATH=""
 
 if ! mkdir -p "$(dirname "$RESTIC_LOG")"; then
   echo "$(date) [ERROR] [RESTIC_RESTORE] Failed to create log directory"
@@ -23,6 +24,11 @@ fi
 check_requirements() {
   if ! command -v restic >/dev/null 2>&1; then
     echo "$(date) [ERROR] [RESTIC_RESTORE] restic is not installed"
+    return 1
+  fi
+
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "$(date) [ERROR] [RESTIC_RESTORE] jq is not installed"
     return 1
   fi
 
@@ -56,8 +62,20 @@ prepare_restore_directory() {
 }
 
 validate_snapshot() {
-  if ! restic snapshots --no-lock "$SNAPSHOT_ID" >/dev/null 2>>"$RESTIC_LOG"; then
+  local snapshot_json
+
+  if ! snapshot_json=$(restic snapshots --no-lock --json "$SNAPSHOT_ID" 2>>"$RESTIC_LOG"); then
     echo "$(date) [ERROR] [RESTIC_RESTORE] Snapshot not found: $SNAPSHOT_ID"
+    return 1
+  fi
+
+  # Each backup cycle snapshots one staging folder, so a snapshot has one
+  # path. Restoring "<id>:<path>" puts that folder's contents directly in
+  # RESTORE_DIR instead of recreating the full path underneath it.
+  SNAPSHOT_PATH=$(jq -r '.[0].paths[0] // empty' <<<"$snapshot_json")
+
+  if [ -z "$SNAPSHOT_PATH" ]; then
+    echo "$(date) [ERROR] [RESTIC_RESTORE] Could not read the backed-up path of snapshot: $SNAPSHOT_ID"
     return 1
   fi
 

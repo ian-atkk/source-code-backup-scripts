@@ -9,8 +9,11 @@ load_source_env forgejo
 require_env FORGEJO_IMAGE FORGEJO_UID FORGEJO_GID \
   RECOVERY_CONTAINER RECOVERY_PORT LOG_DIR
 
-DUMP_FILE="${1:?Usage: $0 <forgejo-dump.tar> <recovery-directory>}"
-RECOVERY_DIR="${2:?Usage: $0 <forgejo-dump.tar> <recovery-directory>}"
+RESTORED_DIR="${1:?Usage: $0 <restored-dir> <recovery-dir>}"
+RECOVERY_DIR="${2:?Usage: $0 <restored-dir> <recovery-dir>}"
+
+# Set by find_dump.
+DUMP_FILE=""
 
 RECOVERY_HOST="127.0.0.1"
 CONTAINER_PORT="3000"
@@ -45,6 +48,31 @@ start_new_restore_log() {
       "$(date '+%Y-%m-%d %H:%M:%S %Z')"
     printf '%s\n' "$bar"
   } >>"$RESTORE_LOG"
+}
+
+find_dump() {
+  local dumps
+  local dump_count
+
+  if [ ! -d "$RESTORED_DIR" ]; then
+    restore_log ERROR CHECK \
+      "Restored directory does not exist: $RESTORED_DIR"
+    return 1
+  fi
+
+  dumps=$(find "$RESTORED_DIR" -maxdepth 1 -type f -name 'forgejo-dump-*.tar')
+  dump_count=$(grep -c . <<<"$dumps")
+
+  if [ "$dump_count" -ne 1 ]; then
+    restore_log ERROR CHECK \
+      "Expected 1 Forgejo dump, found $dump_count in: $RESTORED_DIR"
+    return 1
+  fi
+
+  DUMP_FILE=$dumps
+
+  restore_log INFO CHECK "Restored dump found: $DUMP_FILE"
+  return 0
 }
 
 check_requirements() {
@@ -456,6 +484,11 @@ main() {
   local exit_code
 
   start_new_restore_log
+
+  find_dump || {
+    exit_code=$?
+    return "$exit_code"
+  }
 
   check_requirements || {
     exit_code=$?

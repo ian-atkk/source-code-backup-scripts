@@ -1,14 +1,13 @@
 #!/bin/bash
 #
-# Stops Forgejo, creates a tar dump for restic, then restarts Forgejo and records the dump path in a state file.
+# Stops Forgejo, creates a tar dump in <staging-dir> for restic, then restarts Forgejo.
 
 set -u
 . "$(dirname -- "$(realpath -- "$0")")/../../load-env.sh" || exit 1
 load_source_env forgejo
 require_env FORGEJO_DIR FORGEJO_SERVICE FORGEJO_CONTAINER FORGEJO_UID LOG_DIR
 
-DESTINATION_DIR="${1:?Usage: $0 <destination-directory> <state-file>}"
-STATE_FILE="${2:?Usage: $0 <destination-directory> <state-file>}"
+DESTINATION_DIR="${1:?Usage: $0 <staging-dir>}"
 
 FORGEJO_LOG="$LOG_DIR/forgejo_output.log"
 
@@ -59,15 +58,10 @@ check_dir() {
     return 1
   fi
 
+  # The backup cycle creates the staging folder before calling us.
   if [ ! -d "$DESTINATION_DIR" ]; then
-    echo "$(date) [INFO] [FORGEJO_CHECK] Destination directory not found, creating: $DESTINATION_DIR"
-
-    if ! mkdir -p "$DESTINATION_DIR"; then
-      echo "$(date) [ERROR] [FORGEJO_CHECK] Failed to create destination: $DESTINATION_DIR"
-      return 1
-    fi
-  else
-    echo "$(date) [INFO] [FORGEJO_CHECK] Destination directory found: $DESTINATION_DIR"
+    echo "$(date) [ERROR] [FORGEJO_CHECK] Staging directory not found: $DESTINATION_DIR"
+    return 1
   fi
 
   if [ ! -w "$DESTINATION_DIR" ]; then
@@ -212,26 +206,6 @@ create_forgejo_dump() {
   return 0
 }
 
-write_state_file() {
-  local temporary_state
-
-  temporary_state="${STATE_FILE}.tmp"
-
-  if ! printf '%s\n' "$HOST_DUMP" >"$temporary_state"; then
-    echo "$(date) [ERROR] [FORGEJO_SYSTEM] Failed to write temporary state file"
-    return 1
-  fi
-
-  if ! mv -- "$temporary_state" "$STATE_FILE"; then
-    echo "$(date) [ERROR] [FORGEJO_SYSTEM] Failed to publish state file: $STATE_FILE"
-    rm -f -- "$temporary_state"
-    return 1
-  fi
-
-  echo "$(date) [INFO] [FORGEJO_SYSTEM] Dump path recorded in: $STATE_FILE"
-  return 0
-}
-
 failure_cleanup() {
   # An incomplete or invalid dump must not end up in the next restic
   # snapshot; the log keeps the details.
@@ -239,8 +213,6 @@ failure_cleanup() {
     rm -f -- "$HOST_DUMP"
     echo "$(date) [INFO] [FORGEJO_CLEANUP] Removed failed dump: $HOST_DUMP"
   fi
-
-  rm -f -- "$STATE_FILE"
 }
 
 # Restart Forgejo however the script ends (error, Ctrl-C, kill).
@@ -258,8 +230,6 @@ main() {
 
   # Bring Forgejo back before validating to keep the downtime short.
   start_forgejo || return $?
-
-  write_state_file || return $?
 
   echo "$(date) [INFO] [FORGEJO_SYSTEM] Forgejo backup artifact ready: $HOST_DUMP"
   return 0
