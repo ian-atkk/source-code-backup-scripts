@@ -3,12 +3,13 @@
 # Sourced by the backup and restore scripts. Loads backup.env and
 # exports its variables so child scripts inherit them.
 
-ENV_FILE="${BACKUP_ENV_FILE:-$(dirname -- "$(realpath -- "${BASH_SOURCE[0]}")")/backup.env}"
+ENV_ROOT=$(dirname -- "$(realpath -- "${BASH_SOURCE[0]}")")
+ENV_FILE="${BACKUP_ENV_FILE:-$ENV_ROOT/backup.env}"
 
 if [ ! -r "$ENV_FILE" ]; then
-    echo "$(date) [ERROR] [ENV] Env file not found or not readable: $ENV_FILE"
-    echo "$(date) [ERROR] [ENV] Copy backup.env.example to backup.env and adjust it"
-    exit 1
+  echo "$(date) [ERROR] [ENV] Env file not found or not readable: $ENV_FILE"
+  echo "$(date) [ERROR] [ENV] Copy backup.env.example to backup.env and adjust it"
+  exit 1
 fi
 
 set -a
@@ -18,12 +19,26 @@ set +a
 
 # Fail with a clear message when a script needs a variable the env file lacks.
 require_env() {
-    local name
+  local name
 
-    for name in "$@"; do
-        if [ -z "${!name:-}" ]; then
-            echo "$(date) [ERROR] [ENV] $name is not set in $ENV_FILE"
-            exit 1
-        fi
-    done
+  for name in "$@"; do
+    if [ -z "${!name:-}" ]; then
+      echo "$(date) [ERROR] [ENV] $name is not set (check backup.env or the source's source.env)"
+      exit 1
+    fi
+  done
+}
+
+# Loads sources/<name>/source.env on top of the shared config.
+load_source_env() {
+  local file="$ENV_ROOT/sources/$1/source.env"
+
+  if [ ! -r "$file" ]; then
+    echo "$(date) [ERROR] [ENV] Source env file not found or not readable: $file"
+    exit 1
+  fi
+
+  set -a
+  . "$file"
+  set +a
 }
