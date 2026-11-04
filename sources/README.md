@@ -13,9 +13,13 @@ to produce a good backup and be able to check it.
 Writes everything needed to restore the service into `<staging-dir>`.
 
 - `<staging-dir>` already exists, is empty, and has permissions 700.
+  It is always `$BACKUP_DIR/<name>`, because restic groups snapshots
+  by path for retention.
 - Must leave the service in the state it found it (e.g. running),
   even if the backup fails.
 - Exit 0 only when the backup is complete.
+- If restic fails, the staging folder is kept for investigation, and
+  the next run of this source stops until someone checks and removes it.
 
 ### verify.sh <dir>
 
@@ -34,12 +38,17 @@ can check it.
 
 - Must not touch the production service.
 - Exit 0 once the test instance is up.
+- Run it through the restore cycle:
+  `./source-code-restore-cycle.sh <source> <snapshot-id>`
+  (restores the snapshot, runs `verify.sh`, then `restore.sh` with sudo).
 
 ### source.env
 
 Settings only this source uses, e.g. `FORGEJO_CONTAINER`.
 
 - Shared settings (restic, rclone, logs) stay in `backup.env`.
+- The restore cycle loads this file, so `RESTORE_DIR` and `RECOVERY_DIR`
+  can be set here per source.
 
 ## Rules
 
