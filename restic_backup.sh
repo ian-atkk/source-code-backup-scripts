@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Backs up a directory with restic, applies daily/weekly retention, prunes, checks a rotating data subset, and sends a desktop notification with the result.
+# Backs up a directory with restic, applies daily/weekly retention, prunes, and checks a rotating data subset.
 set -u
 
 . "$(dirname -- "$(realpath -- "$0")")/load-env.sh"
@@ -370,19 +370,7 @@ main() {
 }
 
 if main; then
-  notify-send \
-    "Restic Backup" \
-    "Backup cycle completed successfully" \
-    >/dev/null 2>&1 || true
-
   exit 0
 else
-  exit_code=$?
-
-  notify-send \
-    "Restic Backup Failed" \
-    "Backup cycle failed with exit code $exit_code" \
-    >/dev/null 2>&1 || true
-
-  exit "$exit_code"
+  exit "$?"
 fi

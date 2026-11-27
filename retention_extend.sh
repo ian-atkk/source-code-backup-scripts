@@ -125,19 +125,11 @@ main() {
 }
 
 if main; then
-  notify-send \
-    "Retention Extension" \
-    "Retention extension completed successfully" \
-    >/dev/null 2>&1 || true
-
   exit 0
 else
   exit_code=$?
 
-  notify-send \
-    "Retention Extension Failed" \
-    "Retention extension failed with exit code $exit_code" \
-    >/dev/null 2>&1 || true
+  echo "$(date) [ERROR] [RETENTION_SYSTEM] Retention extension failed (exit_code=$exit_code)"
 
   exit "$exit_code"
 fi
