@@ -1,18 +1,33 @@
 #!/bin/bash
 #
-# Stops Forgejo, creates a tar dump in <staging-dir> for restic, then restarts Forgejo.
+# Creates a live Forgejo dump (tar) in <staging-dir> for restic.
+#
+# Forgejo keeps running during the dump. This script runs as the
+# forgejo-backup user, which cannot use Docker directly. The dump itself
+# is made by a root-owned helper that forgejo-backup may run via sudo:
+#   /usr/local/bin/forgejo-dump            (writes the tar to stdout)
+#   /etc/sudoers.d/forgejo-dump            (allows only that one command)
 
 set -u
+umask 077 # every file this script creates is private (600)
+
 . "$(dirname -- "$(realpath -- "$0")")/../../load-env.sh" || exit 1
 load_source_env forgejo
-require_env FORGEJO_DIR FORGEJO_SERVICE FORGEJO_CONTAINER FORGEJO_UID LOG_DIR
+require_env LOG_DIR
 
 DESTINATION_DIR="${1:?Usage: $0 <staging-dir>}"
 
 FORGEJO_LOG="$LOG_DIR/forgejo_output.log"
 
-# Set to 1 only while this script has Forgejo stopped.
-FORGEJO_STOPPED_BY_US=0
+# Root-owned helper that runs `forgejo dump` inside the container.
+DUMP_COMMAND="/usr/local/bin/forgejo-dump"
+
+# The dump is ~22G; keep a safety margin on the staging disk.
+MIN_FREE_GB=50
+
+# Set to 1 only when the whole script succeeded; the exit trap
+# removes a half-written dump otherwise.
+BACKUP_SUCCEEDED=0
 
 if ! mkdir -p "$(dirname "$FORGEJO_LOG")"; then
   echo "$(date) [ERROR] [FORGEJO_SYSTEM] Failed to create log directory"
@@ -32,31 +47,8 @@ start_new_forgejo_log() {
   } >>"$FORGEJO_LOG"
 }
 
-forgejo_compose() {
-  docker compose -f "$FORGEJO_DIR/compose.yaml" "$@"
-}
-
-forgejo_running() {
-  [ "$(
-    docker inspect \
-      --format '{{.State.Running}}' \
-      "$FORGEJO_CONTAINER" \
-      2>/dev/null
-  )" = "true" ]
-}
-
 check_dir() {
-  if [ ! -d "$FORGEJO_DIR" ]; then
-    echo "$(date) [ERROR] [FORGEJO_CHECK] Forgejo directory not found: $FORGEJO_DIR"
-    return 1
-  else
-    echo "$(date) [INFO] [FORGEJO_CHECK] Forgejo directory found: $FORGEJO_DIR"
-  fi
-
-  if [ ! -f "$FORGEJO_DIR/compose.yaml" ]; then
-    echo "$(date) [ERROR] [FORGEJO_CHECK] compose.yaml not found in: $FORGEJO_DIR"
-    return 1
-  fi
+  local free_gb
 
   # The backup cycle creates the staging folder before calling us.
   if [ ! -d "$DESTINATION_DIR" ]; then
@@ -69,97 +61,41 @@ check_dir() {
     return 1
   fi
 
-  # Docker bind mounts need an absolute path.
   DESTINATION_DIR=$(realpath -e -- "$DESTINATION_DIR") || return 1
 
+  # df --output=avail -BG prints free space in GB; tail -1 skips the
+  # header line; tr -dc '0-9' keeps only the digits ("498G" -> "498").
+  free_gb=$(df --output=avail -BG "$DESTINATION_DIR" | tail -1 | tr -dc '0-9')
+
+  if [ "$free_gb" -lt "$MIN_FREE_GB" ]; then
+    echo "$(date) [ERROR] [FORGEJO_CHECK] Only ${free_gb}G free in $DESTINATION_DIR (need ${MIN_FREE_GB}G)"
+    return 1
+  fi
+
+  echo "$(date) [INFO] [FORGEJO_CHECK] Staging directory OK: $DESTINATION_DIR (${free_gb}G free)"
   return 0
 }
 
-check_forgejo_container() {
-  if ! command -v docker >/dev/null 2>&1; then
-    echo "$(date) [ERROR] [FORGEJO_CHECK] Docker command not found"
-    return 1
-  else
-    echo "$(date) [INFO] [FORGEJO_CHECK] Docker command found"
-  fi
-
-  if ! docker compose version >/dev/null 2>&1; then
-    echo "$(date) [ERROR] [FORGEJO_CHECK] Docker Compose plugin is not available"
-    return 1
-  fi
-
+check_requirements() {
   if ! command -v tar >/dev/null 2>&1; then
     echo "$(date) [ERROR] [FORGEJO_CHECK] tar command not found"
     return 1
   fi
 
-  if ! docker inspect "$FORGEJO_CONTAINER" >/dev/null 2>&1; then
-    echo "$(date) [ERROR] [FORGEJO_CHECK] Forgejo container not found: $FORGEJO_CONTAINER"
+  if [ ! -x "$DUMP_COMMAND" ]; then
+    echo "$(date) [ERROR] [FORGEJO_CHECK] Dump helper not found or not executable: $DUMP_COMMAND"
     return 1
-  else
-    echo "$(date) [INFO] [FORGEJO_CHECK] Forgejo container found: $FORGEJO_CONTAINER"
   fi
 
-  if forgejo_running; then
-    echo "$(date) [INFO] [FORGEJO_CHECK] Forgejo container running: $FORGEJO_CONTAINER"
-  else
-    echo "$(date) [WARNING] [FORGEJO_CHECK] Forgejo container is not running; it will be left stopped after the dump"
+  # sudo -l <command> succeeds only if the sudoers rule allows it.
+  # -n: never ask for a password (fail instead), since this runs unattended.
+  if ! sudo -n -l "$DUMP_COMMAND" >/dev/null 2>&1; then
+    echo "$(date) [ERROR] [FORGEJO_CHECK] sudo rule missing: $(whoami) may not run $DUMP_COMMAND"
+    return 1
   fi
 
+  echo "$(date) [INFO] [FORGEJO_CHECK] Dump helper and sudo rule OK"
   return 0
-}
-
-stop_forgejo() {
-  if ! forgejo_running; then
-    return 0
-  fi
-
-  echo "$(date) [INFO] [FORGEJO_STOP] Stopping Forgejo for a consistent dump"
-  echo -e "\n--- STOP ---" >>"$FORGEJO_LOG"
-
-  # Set before stopping so the exit trap restarts Forgejo even if
-  # the stop command fails halfway.
-  FORGEJO_STOPPED_BY_US=1
-
-  if ! forgejo_compose stop "$FORGEJO_SERVICE" >>"$FORGEJO_LOG" 2>&1; then
-    echo "$(date) [ERROR] [FORGEJO_STOP] Failed to stop Forgejo"
-    return 1
-  fi
-
-  if forgejo_running; then
-    echo "$(date) [ERROR] [FORGEJO_STOP] Forgejo is still running after stop"
-    return 1
-  fi
-
-  echo "$(date) [INFO] [FORGEJO_STOP] Forgejo stopped"
-  return 0
-}
-
-start_forgejo() {
-  if [ "$FORGEJO_STOPPED_BY_US" -ne 1 ]; then
-    return 0
-  fi
-
-  echo "$(date) [INFO] [FORGEJO_START] Starting Forgejo"
-  echo -e "\n--- START ---" >>"$FORGEJO_LOG"
-
-  if ! forgejo_compose start "$FORGEJO_SERVICE" >>"$FORGEJO_LOG" 2>&1; then
-    echo "$(date) [ERROR] [FORGEJO_START] Failed to start Forgejo; the service is DOWN"
-    return 1
-  fi
-
-  for _ in 1 2 3 4 5 6 7 8 9 10; do
-    if forgejo_running; then
-      FORGEJO_STOPPED_BY_US=0
-      echo "$(date) [INFO] [FORGEJO_START] Forgejo running again"
-      return 0
-    fi
-
-    sleep 3
-  done
-
-  echo "$(date) [ERROR] [FORGEJO_START] Forgejo did not come back up; the service is DOWN"
-  return 1
 }
 
 create_forgejo_dump() {
@@ -167,28 +103,23 @@ create_forgejo_dump() {
   DUMP_NAME="forgejo-dump-${TIMESTAMP}.tar"
   HOST_DUMP="${DESTINATION_DIR}/${DUMP_NAME}"
 
-  echo "$(date) [INFO] [FORGEJO_DUMP] Creating dump: $DUMP_NAME"
+  echo "$(date) [INFO] [FORGEJO_DUMP] Creating live dump: $DUMP_NAME"
   echo -e "\n--- DUMP ---" >>"$FORGEJO_LOG"
 
   # Plain tar (not compressed): restic compresses and deduplicates it,
   # so only changed data is stored each night.
   #
-  # The dump runs in a one-off container against the same /data volume
-  # while the main container is stopped.
-  if ! forgejo_compose run \
-    --rm \
-    --no-deps \
-    -T \
-    -u "$FORGEJO_UID" \
-    -w /tmp \
-    -v "$DESTINATION_DIR:/backup" \
-    "$FORGEJO_SERVICE" \
-    forgejo dump \
-    --file "/backup/$DUMP_NAME" \
-    --type tar \
-    >>"$FORGEJO_LOG" 2>&1; then
+  # The helper runs as root and writes the tar to stdout (>). This
+  # script (forgejo-backup) creates the file, so it owns it.
+  # Forgejo's own log lines go to stderr (2>>) and end up in our log.
+  # (ShellCheck SC2024 warns that sudo doesn't apply to redirects; here
+  # that is exactly what we want: root never writes to our staging dir.)
+  # shellcheck disable=SC2024
+  if ! sudo -n "$DUMP_COMMAND" \
+    >"$HOST_DUMP" \
+    2>>"$FORGEJO_LOG"; then
 
-    echo "$(date) [ERROR] [FORGEJO_DUMP] Forgejo dump creation failed"
+    echo "$(date) [ERROR] [FORGEJO_DUMP] Forgejo dump creation failed (see $FORGEJO_LOG)"
     return 1
   fi
 
@@ -215,8 +146,14 @@ failure_cleanup() {
   fi
 }
 
-# Restart Forgejo however the script ends (error, Ctrl-C, kill).
-trap 'start_forgejo' EXIT
+on_exit() {
+  if [ "$BACKUP_SUCCEEDED" -ne 1 ]; then
+    failure_cleanup
+  fi
+}
+
+# Clean up a half-written dump however the script ends (error, Ctrl-C, kill).
+trap 'on_exit' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
@@ -224,25 +161,20 @@ main() {
   start_new_forgejo_log
 
   check_dir || return $?
-  check_forgejo_container || return $?
-  stop_forgejo || return $?
+  check_requirements || return $?
   create_forgejo_dump || return $?
-
-  # Bring Forgejo back before validating to keep the downtime short.
-  start_forgejo || return $?
 
   echo "$(date) [INFO] [FORGEJO_SYSTEM] Forgejo backup artifact ready: $HOST_DUMP"
   return 0
 }
 
 if main; then
+  BACKUP_SUCCEEDED=1
   exit 0
 else
   exit_code=$?
 
   echo "$(date) [ERROR] [FORGEJO_SYSTEM] Forgejo backup preparation failed (exit_code=$exit_code)"
-
-  failure_cleanup
 
   exit "$exit_code"
 fi
